@@ -4,7 +4,7 @@
 #include <string.h>
 #include <time.h>
 #include <assert.h>
-
+#include "threadpool.h"
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/mman.h>
@@ -69,9 +69,6 @@ int main(int argc, char *argv[])
 
 #if defined(OPT)
 
-#ifndef THREAD_NUM
-#define THREAD_NUM 4
-#endif
     clock_gettime(CLOCK_REALTIME, &start);
 
     char *map = mmap(NULL, fs, PROT_READ, MAP_SHARED, fd, 0);
@@ -83,20 +80,16 @@ int main(int argc, char *argv[])
 
     assert(entry_pool && "entry_pool error");
 
-    pthread_setconcurrency(THREAD_NUM + 1);
-
-    pthread_t *tid = (pthread_t *) malloc(sizeof(pthread_t) * THREAD_NUM);
+  
+    threadpool_t *pool=threadpool_create(THREAD_NUM,512,NULL);
     append_a **app = (append_a **) malloc(sizeof(append_a *) * THREAD_NUM);
-    for (int i = 0; i < THREAD_NUM; i++)
-        app[i] = new_append_a(map + MAX_LAST_NAME_SIZE * i, map + fs, i,
-                              THREAD_NUM, entry_pool + i);
+    clock_gettime(CLOCK_REALTIME,&mid);
+    for (int i = 0; i < THREAD_NUM; i++){
+        app[i] = new_append_a(map + MAX_LAST_NAME_SIZE * i, map + fs, i, THREAD_NUM, entry_pool + i);
+        threadpool_add(pool, &append, app[i], NULL);
+    }
+    threadpool_destroy(pool,1);
 
-    clock_gettime(CLOCK_REALTIME, &mid);
-    for (int i = 0; i < THREAD_NUM; i++)
-        pthread_create( &tid[i], NULL, (void *) &append, (void *) app[i]);
-
-    for (int i = 0; i < THREAD_NUM; i++)
-        pthread_join(tid[i], NULL);
 
     entry *etmp;
     pHead = pHead->pNext;
@@ -159,7 +152,12 @@ int main(int argc, char *argv[])
 
     FILE *output;
 #if defined(OPT)
-    output = fopen("opt.txt", "a");
+    char str[2];
+    sprintf(str,"%d",THREAD_NUM);
+    char *result = malloc(strlen(str)+strlen(".txt")+1);
+    strcpy(result, str);
+    strcat(result, ".txt");
+    output = fopen(result, "a");
 #else
     output = fopen("orig.txt", "a");
 #endif
@@ -174,7 +172,6 @@ int main(int argc, char *argv[])
     free(pHead);
 #else
     free(entry_pool);
-    free(tid);
     free(app);
     munmap(map, fs);
 #endif
